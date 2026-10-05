@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Vāgdhenu WebGPU · 100% In-Browser Sanskrit Śloka-to-Chant Neural Engine</title>
+  <meta name="description" content="100% client-side Sanskrit śloka-to-chant neural synthesis running entirely in your browser via WebGPU and WebAssembly SIMD. Zero server calls, 237 MB baked ONNX weights, and sub-millisecond Pāṇinian Chandas scansion." />
+  <meta property="og:title" content="Vāgdhenu WebGPU · 100% In-Browser Sanskrit Chant Studio" />
+  <meta property="og:description" content="Run a 22-block Flow-Matching DiT + Fourier-Hann Vocos vocoder + Pāṇinian Guru/Laghu scansion 100% inside your browser." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%237a1f0d'/%3E%3Ctext x='50%25' y='56%25' text-anchor='middle' dominant-baseline='middle' fill='%23fbe6c9' font-family='serif' font-size='34' font-weight='700'%3Eवा%3C/text%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Kannada:wght@400;500;600&family=Noto+Sans+Telugu:wght@400;500;600&family=Noto+Serif+Devanagari:wght@400;500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./styles.css?v=21" />
+  <!-- ONNX Runtime Web (ort.all.min.js includes WebGPU + Multi-Threaded WASM SIMD) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.23.2/dist/ort.all.min.js" defer></script>
+</head>
+<body>
+  <a href="#studio" class="skip-link">Skip to in-browser chant studio</a>
+  <div class="paper-grain" aria-hidden="true"></div>
+
+  <!-- Top Floating Navigation Bar (Single Line, <= 72px) -->
+  <header class="top-nav-wrap">
+    <nav class="top-nav" aria-label="Primary Navigation">
+      <a href="#top" class="nav-brand">
+        <span class="nav-monogram" aria-hidden="true">वा</span>
+        <span class="nav-brand-text">Vāgdhenu</span>
+        <span class="nav-brand-deva" lang="sa">वाग्धेनु · WebGPU</span>
+      </a>
+      <div class="nav-links">
+        <a href="#studio" class="nav-link active">In-Browser Studio</a>
+        <a href="#architecture" class="nav-link">WebGPU Architecture</a>
+        <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="nav-link">Hugging Face</a>
+        <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener" class="nav-link">GitHub</a>
+      </div>
+      <div class="nav-Telemetry">
+        <span class="telemetry-pill" id="scansionSpeedBadge">JS Scansion: 0.2 ms</span>
+        <span class="telemetry-pill subtle" id="runtimeProviderBadge">100% Client-Side · 237 MB</span>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Hero Section (Purely Focused on 100% In-Browser Model Capabilities) -->
+  <section class="hero" id="top">
+    <div class="container hero-split">
+      <div class="hero-copy reveal-item">
+        <p class="sanskrit-invocation" lang="sa">॥ वाचं धेनुमुपासीत ॥</p>
+        <h1 class="hero-title">Vāgdhenu In-Browser</h1>
+        <p class="hero-subtitle">
+          A 100% client-side, <em>vṛtta</em>-aware Sanskrit śloka-to-chant neural synthesis engine. Runs a 22-block Flow-Matching DiT, Fourier-Hann Vocos vocoder, and Pāṇinian prosody analyzer directly on your device via WebGPU and WebAssembly SIMD—with zero server calls.
+        </p>
+        <div class="hero-actions">
+          <a href="#studio" class="btn-primary group">
+            <span>Synthesize in Browser</span>
+            <span class="btn-icon-circle" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M7 17L17 7M17 7H8M17 7V16" />
+              </svg>
+            </span>
+          </a>
+          <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="btn-secondary">
+            🤗 ONNX Weights on Hugging Face
+          </a>
+          <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener" class="btn-secondary">
+            GitHub Repo
+          </a>
+        </div>
+      </div>
+
+      <aside class="hero-specimen double-bezel reveal-item" aria-label="In-Browser Execution Specimen">
+        <div class="bezel-inner specimen-inner">
+          <div class="specimen-top">
+            <span class="specimen-tag">100% On-Device WebGPU / WASM</span>
+            <span class="specimen-meta">Zero Cloud Inference</span>
+          </div>
+          <blockquote class="specimen-verse" lang="sa">
+            वागर्थाविव संपृक्तौ वागर्थप्रतिपत्तये ।<br />
+            जगतः पितरौ वन्दे पार्वतीपरमेश्वरौ ॥
+          </blockquote>
+          <div class="specimen-metrics">
+            <div class="metric-cell">
+              <span class="metric-val">237 MB</span>
+              <span class="metric-lbl">Total Browser Bundle</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-val">0.9999</span>
+              <span class="metric-lbl">DiT Step Cosine Sim</span>
+            </div>
+            <div class="metric-cell">
+              <span class="metric-val">0 Bytes</span>
+              <span class="metric-lbl">Sent to Any Server</span>
+            </div>
+          </div>
+          <p class="specimen-disclaimer">
+            All weights (<strong>Static Conditioner</strong>, <strong>Rank-32 W8 DiT</strong>, <strong>Fourier-Hann Vocos</strong>, and <strong>FP16 Reference Bank</strong>) are hosted on <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" style="color: var(--crimson); font-weight: 600; text-decoration: underline;">huggingface.co/gnumanth/sanskrit-tts-web</a> and cached locally in your browser.
+          </p>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Main Interactive In-Browser Synthesis & Pāṇinian Scansion Studio -->
+  <main class="container studio-section" id="studio">
+    <div class="studio-grid">
+      <!-- Left Column: Verse Input, In-Browser ONNX Runtime & Audio Player -->
+      <section class="double-bezel reveal-item" aria-label="In-Browser Verse Synthesis Controls">
+        <div class="bezel-inner panel-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">In-Browser Śloka Recitation Studio</h2>
+              <p class="section-lead">Synthesized 100% locally in your browser tab from Devanagari, Kannada, Telugu, Malayalam, Tamil, or Bengali.</p>
+            </div>
+            <span class="script-pill" id="scriptDetectedLabel">Script: Devanagari</span>
+          </div>
+
+          <div class="preset-block">
+            <span class="field-label">Canonical Sample Ślokas</span>
+            <div class="preset-chips" id="presetChips" role="list"></div>
+          </div>
+
+          <div class="input-block">
+            <label for="shlokaInput" class="field-label">Your Verse (One Śloka at a Time)</label>
+            <textarea
+              id="shlokaInput"
+              class="shloka-textarea"
+              rows="4"
+              lang="sa"
+              placeholder="Paste a single Sanskrit śloka in any Indian script..."
+            >वागर्थाविव संपृक्तौ वागर्थप्रतिपत्तये ।
+जगतः पितरौ वन्दे पार्वतीपरमेश्वरौ ॥</textarea>
+          </div>
+
+          <div class="engine-block">
+            <div class="field-label-row">
+              <span class="field-label">Client-Side ONNX Pipeline</span>
+              <span class="field-hint" id="cacheStatusHint">Cached in browser Cache API (vagdhenu-models-v7)</span>
+            </div>
+            <div class="runtime-pills" aria-label="Active In-Browser Neural Modules">
+              <span class="rt-pill"><strong>Bank:</strong> 2.84 MB FP16</span>
+              <span class="rt-pill"><strong>Conditioner:</strong> 19.3 MB INT8</span>
+              <span class="rt-pill"><strong>22-Block DiT:</strong> 191.6 MB WebGPU FP16/W8</span>
+              <span class="rt-pill"><strong>Vocos:</strong> 18.4 MB W8/FP32</span>
+            </div>
+          </div>
+
+          <div class="controls-grid">
+            <div class="control-field">
+              <label for="meterSelect">Chandas (Vṛtta)</label>
+              <select id="meterSelect" class="select-input">
+                <option value="auto">Auto-Detect from Guru / Laghu</option>
+                <option value="anuṣṭubh">anuṣṭubh (8 syl / pāda)</option>
+                <option value="vasantatilakā">vasantatilakā (14 syl)</option>
+                <option value="śārdūlavikrīḍita">śārdūlavikrīḍita (19 syl)</option>
+                <option value="sragdharā">sragdharā (21 syl)</option>
+                <option value="upajāti">upajāti (11 syl)</option>
+                <option value="indravajrā">indravajrā (11 syl)</option>
+                <option value="upendravajrā">upendravajrā (11 syl)</option>
+                <option value="vaṃśastha">vaṃśastha (12 syl)</option>
+                <option value="indravaṃśā">indravaṃśā (12 syl)</option>
+                <option value="mālinī">mālinī (15 syl)</option>
+                <option value="bhujaṅgaprayāta">bhujaṅgaprayāta (12 syl)</option>
+                <option value="drutavilambita">drutavilambita (12 syl)</option>
+                <option value="śālinī">śālinī (11 syl)</option>
+                <option value="rathoddhatā">rathoddhatā (11 syl)</option>
+                <option value="pramāṇikā">pramāṇikā (8 syl)</option>
+                <option value="gadya">gadya (Prose)</option>
+              </select>
+            </div>
+
+            <div class="control-field">
+              <label for="nfeRange">
+                <span>Flow Steps (NFE)</span>
+                <strong id="nfeVal" class="mono-num">7</strong>
+              </label>
+              <input type="range" id="nfeRange" class="range-input" min="6" max="16" step="1" value="7" />
+            </div>
+
+            <div class="control-field">
+              <label for="speedRange">
+                <span>Recitation Pace</span>
+                <strong id="speedVal" class="mono-num">0.90×</strong>
+              </label>
+              <input type="range" id="speedRange" class="range-input" min="0.70" max="1.15" step="0.05" value="0.90" />
+            </div>
+          </div>
+
+          <div class="toggle-row">
+            <label class="checkbox-label">
+              <input type="checkbox" id="sandhiToggle" checked />
+              <span>Apply Client-Side Internal Visarga Sandhi, Satva &amp; Anusvāra Assimilation</span>
+            </label>
+          </div>
+
+          <button type="button" id="chantBtn" class="chant-btn group">
+            <span class="chant-btn-label">Chant Śloka in Browser</span>
+            <span class="btn-icon-circle" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+            </span>
+          </button>
+
+          <div class="status-box" id="statusBox" role="status" aria-live="polite">
+            <div class="status-top">
+              <span id="statusText">100% In-Browser WebGPU + WASM SIMD ready · click Chant Śloka to run locally.</span>
+              <span id="statusTimer" class="mono-num">0.0s</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progressFill"></div>
+            </div>
+          </div>
+
+          <div class="player-card" id="playerCard" hidden>
+            <div class="player-header">
+              <span class="player-title">Browser-Synthesized Audio (24 kHz Mono PCM WAV)</span>
+              <a id="downloadLink" class="download-btn" download="vagdhenu_browser_chant.wav">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+                </svg>
+                <span>Download WAV</span>
+              </a>
+            </div>
+            <canvas id="waveformCanvas" class="waveform-canvas" width="680" height="112"></canvas>
+            <div class="audio-controls-row">
+              <audio id="audioPlayer" controls preload="auto"></audio>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Live In-Browser Pāṇinian Scansion & Kannada Phonetic Routing -->
+      <section class="double-bezel reveal-item" aria-label="Live In-Browser Phonetic and Chandas Analysis">
+        <div class="bezel-inner panel-card">
+          <div class="section-header">
+            <div>
+              <h2 class="section-title">Client-Side Pāṇinian Scansion</h2>
+              <p class="section-lead">Zero-latency Guru (ˉ) and Laghu (˘) syllable weight analysis computed in JavaScript.</p>
+            </div>
+            <span class="script-pill mono-num" id="syllableCountLabel">32 syllables</span>
+          </div>
+
+          <div class="meter-banner">
+            <div>
+              <div class="meter-meta">Detected Vṛtta</div>
+              <div class="meter-name" id="detectedMeterTitle">anuṣṭubh</div>
+            </div>
+            <div class="meter-right">
+              <div class="meter-meta">Hemistich Akṣaras</div>
+              <div class="akshara-badge mono-num" id="hemistichSyllsBadge">16 + 16 akṣaras</div>
+            </div>
+          </div>
+
+          <div class="scansion-legend" aria-hidden="true">
+            <span class="legend-item"><i class="legend-swatch guru">ˉ</i> Guru (Heavy: long vowel, anusvāra, visarga, or conjunct-preceding)</span>
+            <span class="legend-item"><i class="legend-swatch laghu">˘</i> Laghu (Light: short vowel)</span>
+          </div>
+
+          <div class="scansion-container" id="scansionContainer" aria-live="polite"></div>
+
+          <div class="routing-section">
+            <div class="section-header">
+              <div>
+                <h3 class="subsection-title">In-Browser Kannada Orthographic Routing</h3>
+                <p class="section-lead">Prevents schwa-deletion while preserving jihvāmūlīya, upadhmānīya, and retroflex clusters before ONNX tokenization.</p>
+              </div>
+              <span class="script-pill">ONNX Input</span>
+            </div>
+
+            <div class="routing-box">
+              <div id="kannadaPiecesContainer" class="kannada-pieces"></div>
+              <div class="routing-slp mono-num" id="slp1Preview"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Asymmetric Bento Architecture Section (4 Cells = 4 In-Browser Engineering Pillars) -->
+  <section class="container arch-section" id="architecture">
+    <div class="section-intro reveal-item">
+      <h2 class="display-heading">Engineered for 100% In-Browser Execution</h2>
+      <p class="display-subtext">
+        How a 1.8 GB Sanskrit Flow-Matching TTS pipeline was baked into a 237 MB WebGPU and WebAssembly runtime with 0.9999 backbone cosine fidelity.
+      </p>
+    </div>
+
+    <div class="bento-grid">
+      <article class="bento-cell span-7 double-bezel reveal-item">
+        <div class="bezel-inner bento-inner warm-tint">
+          <div class="bento-top">
+            <span class="bento-kicker">In-Browser Reference Bank</span>
+            <span class="bento-stat mono-num">2.45 MB FP16</span>
+          </div>
+          <h3 class="bento-title">Pre-Baked Mel Reference Bank Across 18 Classical Vṛttas</h3>
+          <p class="bento-body">
+            Instead of running server-side audio slicing and STFT extraction at runtime, all 18 classical meter templates and 3 alliteration repeat-primes are pre-baked into a 2.45 MB IEEE-754 Float16 binary (<code>baked_bank.bin</code>) decoded directly into <code>Float32Array</code> tensors in JavaScript.
+          </p>
+          <div class="meter-tags" aria-label="Supported Sanskrit Meters in Browser">
+            <span>anuṣṭubh</span>
+            <span>vasantatilakā</span>
+            <span>śārdūlavikrīḍita</span>
+            <span>sragdharā</span>
+            <span>mālinī</span>
+            <span>upajāti</span>
+            <span>vaṃśastha</span>
+            <span>drutavilambita</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="bento-cell span-5 double-bezel reveal-item">
+        <div class="bezel-inner bento-inner">
+          <div class="bento-top">
+            <span class="bento-kicker">WebGPU DiT Backbone</span>
+            <span class="bento-stat mono-num">86.8% Smaller</span>
+          </div>
+          <h3 class="bento-title">Rank-32 SVD AdaLN &amp; Head-0 Split-Half RoPE</h3>
+          <p class="bento-body">
+            Factoring all 23 time-conditioning projections onto the 32-D trajectory of <code>silu(time_embed(t))</code> eliminates 137.5M parameters. Combined with per-column symmetric INT8 storage, fused QKV projections, and exact Head-0 split-half RoPE, the 22-block DiT step achieves <strong>0.99992 cosine similarity</strong> inside Chrome WebGPU.
+          </p>
+        </div>
+      </article>
+
+      <article class="bento-cell span-5 double-bezel reveal-item">
+        <div class="bezel-inner bento-inner">
+          <div class="bento-top">
+            <span class="bento-kicker">JavaScript Prosody Engine</span>
+            <span class="bento-stat mono-num">0.2 ms / Verse</span>
+          </div>
+          <h3 class="bento-title">Pure-JS Pāṇinian Scansion &amp; Sandhi</h3>
+          <p class="bento-body">
+            <code>vagdhenu-text.js</code> implements zero-dependency multi-script detection, SLP1 normalization, Guru/Laghu syllable weight tagging, 18-vṛtta pattern matching, visarga sandhi, satva assimilation, and Kannada orthographic routing entirely on the client thread.
+          </p>
+        </div>
+      </article>
+
+      <article class="bento-cell span-7 double-bezel reveal-item">
+        <div class="bezel-inner bento-inner manuscript-wash">
+          <div class="bento-top">
+            <span class="bento-kicker">Complex64-Free Vocoder</span>
+            <span class="bento-stat mono-num">0.9977 WAV Cosine Sim</span>
+          </div>
+          <h3 class="bento-title">Fourier-Hann ConvTranspose1d Vocos &amp; Acoustic Gate</h3>
+          <p class="bento-body">
+            WebGPU and ONNX lack native <code>Complex64</code> inverse STFT ops. We reformulate <code>torch.istft</code> as an exact 1026-channel Fourier-Hann <code>ConvTranspose1d</code> basis paired with an unquantized FP32 instantaneous phase head, followed by an in-browser fricative/halant RMS gate and 24 kHz PCM WAV encoder.
+          </p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- In-Browser Model Breakdown & Execution Pipeline Section -->
+  <section class="container ecosystem-section" id="runtime">
+    <div class="section-intro reveal-item">
+      <h2 class="display-heading">In-Browser ONNX Artifact Breakdown</h2>
+      <p class="display-subtext">
+        Hosted at <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="text-link">huggingface.co/gnumanth/sanskrit-tts-web</a> and cached locally in your browser's Cache API for offline-capable, zero-server Sanskrit recitation.
+      </p>
+    </div>
+
+    <div class="ecosystem-grid">
+      <article class="double-bezel reveal-item">
+        <div class="bezel-inner eco-card">
+          <p class="eco-sanskrit mono-num">vagdhenu_cond_q8.onnx · 34 MB</p>
+          <h3 class="eco-title">1. Static Conditioner (Run 1× per Hemistich)</h3>
+          <p class="eco-desc">
+            Hoists the 4-block ConvNeXtV2 text encoder, reference mel projection (<code>W_c @ cond_mel + b</code>), text projection (<code>W_t @ emb</code>), and split-half rotary position embeddings outside the ODE loop so they execute only once per hemistich instead of at every flow step.
+          </p>
+          <div class="eco-links">
+            <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/blob/main/vagdhenu_cond_q8.onnx" target="_blank" rel="noopener" class="pill-link primary">View on Hugging Face</a>
+            <span class="pill-link">ConvNeXtV2 Text Blocks</span>
+            <span class="pill-link">Split-Half RoPE Tables</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="double-bezel reveal-item">
+        <div class="bezel-inner eco-card">
+          <p class="eco-sanskrit mono-num">vagdhenu_dit_step_q8.onnx · 192 MB</p>
+          <h3 class="eco-title">2. 22-Block WebGPU W8 DiT Step</h3>
+          <p class="eco-desc">
+            Executes sway-sampled Rectified Flow ODE integration with Adaptive Classifier-Free Guidance directly on the GPU via WebGPU compute shaders (with automatic fallback to WebAssembly SIMD). Uses single-node <code>FastGelu</code>, static head reshapes, and Rank-32 SVD AdaLN.
+          </p>
+          <div class="eco-links">
+            <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/blob/main/vagdhenu_dit_step_q8.onnx" target="_blank" rel="noopener" class="pill-link primary">View on Hugging Face</a>
+            <span class="pill-link">WebGPU Tiled MatMul</span>
+            <span class="pill-link">Rank-32 SVD AdaLN</span>
+          </div>
+        </div>
+      </article>
+    </div>
+
+    <div class="corpus-strip double-bezel reveal-item">
+      <div class="bezel-inner corpus-inner">
+        <div class="corpus-item">
+          <span class="corpus-name">3. Fourier-Hann Vocos Vocoder (<code>vagdhenu_vocos_q8.onnx</code> · 56 MB)</span>
+          <span class="corpus-meta">ConvNeXt backbone + exact FP32 log-magnitude/phase head + 1026-bin Fourier-Hann ConvTranspose1d synthesis</span>
+          <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/blob/main/vagdhenu_vocos_q8.onnx" target="_blank" rel="noopener" class="text-link">Download from Hugging Face →</a>
+        </div>
+        <div class="corpus-divider" aria-hidden="true"></div>
+        <div class="corpus-item">
+          <span class="corpus-name">4. Pre-Baked Prosody Bank (<code>baked_bank.bin</code> · 2.84 MB)</span>
+          <span class="corpus-meta">18 classical vṛtta mel templates + 3 alliteration primes + 1,039-token Kannada/Sanskrit phoneme vocabulary</span>
+          <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/tree/main" target="_blank" rel="noopener" class="text-link">Browse Model Repository →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <p class="footer-attribution">
+        Vāgdhenu 100% In-Browser WebGPU &amp; WebAssembly Neural Synthesis Studio · Browser version by <a href="https://h3manth.com" target="_blank" rel="noopener"><strong>Hemanth HM</strong></a> · Original Vāgdhenu research by <a href="https://huggingface.co/spaces/prathoshap/vagdhenu" target="_blank" rel="noopener"><strong>Prof. Prathosh A P, IISc Bengaluru</strong></a>
+      </p>
+      <p class="footer-attribution">
+        ONNX Weights: <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener">huggingface.co/gnumanth/sanskrit-tts-web</a> · Source Code: <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener">github.com/hemanth/sanskrit-tts-web</a> · <a href="https://h3manth.com/ai/">All AI Experiments</a>
+      </p>
+    </div>
+  </footer>
+
+  <script type="module" src="./app.js?v=21"></script>
+</body>
+</html>
