@@ -30,7 +30,9 @@
       <div class="nav-links">
         <a href="#studio" class="nav-link active">In-Browser Studio</a>
         <a href="#architecture" class="nav-link">WebGPU Architecture</a>
-        <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="nav-link">Hugging Face</a>
+        <a href="https://h3manth.com/ai/sanskrit-tts/" target="_blank" rel="noopener" class="nav-link">h3manth.com</a>
+        <a href="https://huggingface.co/spaces/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="nav-link">HF Space</a>
+        <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx" target="_blank" rel="noopener" class="nav-link">HF Weights</a>
         <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener" class="nav-link">GitHub</a>
       </div>
       <div class="nav-Telemetry">
@@ -58,8 +60,14 @@
               </svg>
             </span>
           </a>
-          <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="btn-secondary">
-            🤗 ONNX Weights on Hugging Face
+          <a href="https://h3manth.com/ai/sanskrit-tts/" target="_blank" rel="noopener" class="btn-secondary">
+            h3manth.com/ai/sanskrit-tts
+          </a>
+          <a href="https://huggingface.co/spaces/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="btn-secondary">
+            🤗 HF Space
+          </a>
+          <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx" target="_blank" rel="noopener" class="btn-secondary">
+            🤗 ONNX Weights
           </a>
           <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener" class="btn-secondary">
             GitHub Repo
@@ -92,7 +100,7 @@
             </div>
           </div>
           <p class="specimen-disclaimer">
-            All weights (<strong>Static Conditioner</strong>, <strong>Rank-32 W8 DiT</strong>, <strong>Fourier-Hann Vocos</strong>, and <strong>FP16 Reference Bank</strong>) are hosted on <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" style="color: var(--crimson); font-weight: 600; text-decoration: underline;">huggingface.co/gnumanth/sanskrit-tts-web</a> and cached locally in your browser.
+            All weights (<strong>Static Conditioner</strong>, <strong>Rank-32 W8 DiT</strong>, <strong>Fourier-Hann Vocos</strong>, and <strong>FP16 Reference Bank</strong>) are hosted on <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx" target="_blank" rel="noopener" style="color: var(--crimson); font-weight: 600; text-decoration: underline;">huggingface.co/gnumanth/sanskrit-tts-onnx</a> and cached locally in your browser.
           </p>
         </div>
       </aside>
@@ -132,18 +140,26 @@
 
           <div class="engine-block">
             <div class="field-label-row">
-              <span class="field-label">Client-Side ONNX Pipeline</span>
-              <span class="field-hint" id="cacheStatusHint">Cached in browser Cache API (vagdhenu-models-v7)</span>
+              <span class="field-label">Client-Side Neural Pipeline</span>
+              <span class="field-hint" id="cacheStatusHint">Default: ONNX WebGPU (<a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx" target="_blank" rel="noopener" style="color: var(--crimson); text-decoration: underline;">sanskrit-tts-onnx</a>) · CPU Worker: <a href="https://huggingface.co/gnumanth/sanskrit-tts-wasm" target="_blank" rel="noopener" style="color: var(--crimson); text-decoration: underline;">sanskrit-tts-wasm</a></span>
             </div>
             <div class="runtime-pills" aria-label="Active In-Browser Neural Modules">
               <span class="rt-pill"><strong>Bank:</strong> 2.84 MB FP16</span>
-              <span class="rt-pill"><strong>Conditioner:</strong> 19.3 MB INT8</span>
-              <span class="rt-pill"><strong>22-Block DiT:</strong> 191.6 MB WebGPU FP16/W8</span>
-              <span class="rt-pill"><strong>Vocos:</strong> 18.4 MB W8/FP32</span>
+              <span class="rt-pill" id="condPillLabel"><strong>Conditioner:</strong> 18.8 MB ONNX FP16-Cast</span>
+              <span class="rt-pill" id="ditPillLabel"><strong>22-Block DiT:</strong> 184 MB ONNX WebGPU</span>
+              <span class="rt-pill"><strong>Vocos:</strong> 55.6 MB Fourier-Hann</span>
             </div>
           </div>
 
           <div class="controls-grid">
+            <div class="control-field">
+              <label for="backendSelect">Browser Engine (GPU vs CPU)</label>
+              <select id="backendSelect" class="select-input">
+                <option value="onnx" selected>🖥️ ONNX WebGPU · GPU Accelerated (Fastest · Default · ~4s)</option>
+                <option value="wasm">⚡ WASM SIMD · CPU-Only Fallback (No GPU · sanskrit-tts-wasm)</option>
+              </select>
+            </div>
+
             <div class="control-field">
               <label for="meterSelect">Chandas (Vṛtta)</label>
               <select id="meterSelect" class="select-input">
@@ -355,7 +371,7 @@
     <div class="section-intro reveal-item">
       <h2 class="display-heading">In-Browser ONNX Artifact Breakdown</h2>
       <p class="display-subtext">
-        Hosted at <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener" class="text-link">huggingface.co/gnumanth/sanskrit-tts-web</a> and cached locally in your browser's Cache API for offline-capable, zero-server Sanskrit recitation.
+        Hosted at <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx" target="_blank" rel="noopener" class="text-link">huggingface.co/gnumanth/sanskrit-tts-onnx</a> and cached locally in your browser's Cache API for offline-capable, zero-server Sanskrit recitation.
       </p>
     </div>
 
@@ -368,7 +384,7 @@
             Hoists the 4-block ConvNeXtV2 text encoder, reference mel projection (<code>W_c @ cond_mel + b</code>), text projection (<code>W_t @ emb</code>), and split-half rotary position embeddings outside the ODE loop so they execute only once per hemistich instead of at every flow step.
           </p>
           <div class="eco-links">
-            <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/blob/main/vagdhenu_cond_q8.onnx" target="_blank" rel="noopener" class="pill-link primary">View on Hugging Face</a>
+            <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx/blob/main/vagdhenu_cond_q8.onnx" target="_blank" rel="noopener" class="pill-link primary">View on Hugging Face</a>
             <span class="pill-link">ConvNeXtV2 Text Blocks</span>
             <span class="pill-link">Split-Half RoPE Tables</span>
           </div>
@@ -383,7 +399,7 @@
             Executes sway-sampled Rectified Flow ODE integration with Adaptive Classifier-Free Guidance directly on the GPU via WebGPU compute shaders (with automatic fallback to WebAssembly SIMD). Uses single-node <code>FastGelu</code>, static head reshapes, and Rank-32 SVD AdaLN.
           </p>
           <div class="eco-links">
-            <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/blob/main/vagdhenu_dit_step_q8.onnx" target="_blank" rel="noopener" class="pill-link primary">View on Hugging Face</a>
+            <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx/blob/main/vagdhenu_dit_step_q8.onnx" target="_blank" rel="noopener" class="pill-link primary">View on Hugging Face</a>
             <span class="pill-link">WebGPU Tiled MatMul</span>
             <span class="pill-link">Rank-32 SVD AdaLN</span>
           </div>
@@ -396,13 +412,13 @@
         <div class="corpus-item">
           <span class="corpus-name">3. Fourier-Hann Vocos Vocoder (<code>vagdhenu_vocos_q8.onnx</code> · 56 MB)</span>
           <span class="corpus-meta">ConvNeXt backbone + exact FP32 log-magnitude/phase head + 1026-bin Fourier-Hann ConvTranspose1d synthesis</span>
-          <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/blob/main/vagdhenu_vocos_q8.onnx" target="_blank" rel="noopener" class="text-link">Download from Hugging Face →</a>
+          <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx/blob/main/vagdhenu_vocos_q8.onnx" target="_blank" rel="noopener" class="text-link">Download from Hugging Face →</a>
         </div>
         <div class="corpus-divider" aria-hidden="true"></div>
         <div class="corpus-item">
           <span class="corpus-name">4. Pre-Baked Prosody Bank (<code>baked_bank.bin</code> · 2.84 MB)</span>
           <span class="corpus-meta">18 classical vṛtta mel templates + 3 alliteration primes + 1,039-token Kannada/Sanskrit phoneme vocabulary</span>
-          <a href="https://huggingface.co/gnumanth/sanskrit-tts-web/tree/main" target="_blank" rel="noopener" class="text-link">Browse Model Repository →</a>
+          <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx/tree/main" target="_blank" rel="noopener" class="text-link">Browse Model Repository →</a>
         </div>
       </div>
     </div>
@@ -414,11 +430,11 @@
         Vāgdhenu 100% In-Browser WebGPU &amp; WebAssembly Neural Synthesis Studio · Browser version by <a href="https://h3manth.com" target="_blank" rel="noopener"><strong>Hemanth HM</strong></a> · Original Vāgdhenu research by <a href="https://huggingface.co/spaces/prathoshap/vagdhenu" target="_blank" rel="noopener"><strong>Prof. Prathosh A P, IISc Bengaluru</strong></a>
       </p>
       <p class="footer-attribution">
-        ONNX Weights: <a href="https://huggingface.co/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener">huggingface.co/gnumanth/sanskrit-tts-web</a> · Source Code: <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener">github.com/hemanth/sanskrit-tts-web</a> · <a href="https://h3manth.com/ai/">All AI Experiments</a>
+        Live Web App: <a href="https://h3manth.com/ai/sanskrit-tts/" target="_blank" rel="noopener">h3manth.com/ai/sanskrit-tts</a> · HF Space: <a href="https://huggingface.co/spaces/gnumanth/sanskrit-tts-web" target="_blank" rel="noopener">huggingface.co/spaces/gnumanth/sanskrit-tts-web</a> · ONNX Weights: <a href="https://huggingface.co/gnumanth/sanskrit-tts-onnx" target="_blank" rel="noopener">huggingface.co/gnumanth/sanskrit-tts-onnx</a> · WASM Weights: <a href="https://huggingface.co/gnumanth/sanskrit-tts-wasm" target="_blank" rel="noopener">huggingface.co/gnumanth/sanskrit-tts-wasm</a> · Source Code: <a href="https://github.com/hemanth/sanskrit-tts-web" target="_blank" rel="noopener">github.com/hemanth/sanskrit-tts-web</a> · <a href="https://h3manth.com/ai/" target="_blank" rel="noopener">All AI Experiments</a>
       </p>
     </div>
   </footer>
 
-  <script type="module" src="./app.js?v=21"></script>
+  <script type="module" src="./app.js?v=27"></script>
 </body>
 </html>
