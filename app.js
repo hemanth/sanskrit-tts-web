@@ -1,5 +1,5 @@
-import { analyzeVerse } from "./vagdhenu-text.js?v=33";
-import { VagdhenuWebEngine, isMobileDevice } from "./vagdhenu-onnx.js?v=33";
+import { analyzeVerse } from "./vagdhenu-text.js?v=37";
+import { VagdhenuWebEngine, isMobileDevice } from "./vagdhenu-onnx.js?v=37";
 
 const PRESETS = [
   {
@@ -242,7 +242,6 @@ function drawWaveformFromSamples(data, fractionComplete = 1.0) {
 
 let activeStreamCtx = null;
 let activeStreamSources = [];
-let activeTanpuraGain = null;
 
 function stopActiveStream() {
   for (const src of activeStreamSources) {
@@ -253,50 +252,21 @@ function stopActiveStream() {
     }
   }
   activeStreamSources = [];
-  activeTanpuraGain = null;
 }
 
 /**
- * Synthesizes an authentic, gentle Vedic Śruti / Tanpura harmonic pluck (Sa–Pa–Sa at C#3 = 138.59 Hz,
- * matching the Vāgdhenu speaker's tonic fundamental) in <5ms so the user hears immediate tactile-auditory
- * confirmation within <20ms of tapping "Chant Śloka in Browser" while Chunk 0 computes over the next ~1.5-1.9s.
+ * Synchronously unlocks the mobile Web Audio hardware pipeline inside the user tap gesture
+ * using a 1-sample silent buffer (zero artificial sine tones before the authentic voice begins).
  */
-function startInstantTanpuraPluck(ctx) {
+function unlockAudioContextSilently(ctx) {
   try {
-    const sr = 24000;
-    const durSec = 2.2;
-    const len = Math.floor(sr * durSec);
-    const buf = ctx.createBuffer(1, len, sr);
-    const ch = buf.getChannelData(0);
-    const fSa = 138.59; // C#3 (Vāgdhenu speaker ādhāra-ṣaḍja)
-    const fPa = 207.65; // G#3 (pañcama)
-    const fSa2 = 277.18; // C#4 (tāra-ṣaḍja)
-    for (let i = 0; i < len; i++) {
-      const t = i / sr;
-      const envSa = Math.min(1, t / 0.035) * Math.exp(-t * 1.45);
-      const envPa = t > 0.14 ? Math.min(1, (t - 0.14) / 0.04) * Math.exp(-(t - 0.14) * 1.55) : 0;
-      const envSa2 = t > 0.28 ? Math.min(1, (t - 0.28) / 0.04) * Math.exp(-(t - 0.28) * 1.65) : 0;
-      const s1 =
-        (Math.sin(2 * Math.PI * fSa * t) +
-          0.35 * Math.sin(4 * Math.PI * fSa * t) +
-          0.12 * Math.sin(6 * Math.PI * fSa * t)) *
-        envSa;
-      const s2 =
-        (Math.sin(2 * Math.PI * fPa * t) + 0.25 * Math.sin(4 * Math.PI * fPa * t)) * envPa * 0.72;
-      const s3 = Math.sin(2 * Math.PI * fSa2 * t) * envSa2 * 0.52;
-      ch[i] = (s1 + s2 + s3) * 0.038;
-    }
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(1.0, ctx.currentTime);
+    const buf = ctx.createBuffer(1, 1, 24000);
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(gain);
-    gain.connect(ctx.destination);
+    src.connect(ctx.destination);
     src.start(0);
-    activeStreamSources.push(src);
-    activeTanpuraGain = gain;
   } catch {
-    // ignore unlock/tanpura errors
+    // ignore unlock errors
   }
 }
 
@@ -344,7 +314,6 @@ chantBtn.addEventListener("click", async () => {
   }
 
   // Initialize & unlock AudioContext synchronously inside user tap gesture (required for iOS/Android)
-  // and play the <20ms Vedic Tanpura Sa-Pa-Sa harmonic pluck while Chunk 0 computes!
   const AudioCtx = window.AudioContext || window.webkitAudioContext;
   if (!activeStreamCtx && AudioCtx) {
     try {
@@ -357,7 +326,7 @@ chantBtn.addEventListener("click", async () => {
     if (activeStreamCtx.state !== "running") {
       activeStreamCtx.resume().catch(() => {});
     }
-    startInstantTanpuraPluck(activeStreamCtx);
+    unlockAudioContextSilently(activeStreamCtx);
   }
 
   chantBtn.disabled = true;
@@ -399,7 +368,7 @@ chantBtn.addEventListener("click", async () => {
     });
     startTime = performance.now();
 
-    // 100% Client-Side Browser ONNX Execution with Immediate Micro-Chunk Audio Streaming
+    // 100% Client-Side Browser ONNX Execution with Immediate Pāda-Aligned Audio Streaming
     const res = await webEngine.synthesizeInBrowser(
       text,
       {
@@ -423,14 +392,6 @@ chantBtn.addEventListener("click", async () => {
           if (activeStreamCtx) {
             if (activeStreamCtx.state === "suspended" || activeStreamCtx.state === "interrupted") {
               activeStreamCtx.resume().catch(() => {});
-            }
-            if (chunk.chunkIndex === 0 && activeTanpuraGain) {
-              try {
-                const now = activeStreamCtx.currentTime;
-                activeTanpuraGain.gain.setValueAtTime(activeTanpuraGain.gain.value, now);
-                activeTanpuraGain.gain.linearRampToValueAtTime(0.0001, now + 0.045);
-              } catch {}
-              activeTanpuraGain = null;
             }
             const totalChunkLen = chunk.gatedSamples.length + chunk.gapSamples.length;
             const audioBuf = activeStreamCtx.createBuffer(1, totalChunkLen, chunk.sampleRate);

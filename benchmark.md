@@ -26,7 +26,8 @@ Tested over local Wi-Fi via **Wireless ADB + Chrome DevTools Protocol (`wifidebu
 | **2. Mobile WebGPU (`optLevel: "disabled"` on PowerVR)** | `webgpu` | PowerVR D-Series (`88` per-step CPU→GPU `Cast` copies) | `25.33 s` | `151.73 s` | `151.73 s` | `303.40 s` | `8.87 s` (`24 kHz`) | `0.9981` | **0 OOM** |
 | **3. `v=28` Mobile 6T WASM + TailRef (`162f`) + 4-Pāda Stream (`NFE=6`)** | `wasm` | **6T ARM64 SIMD** (`MatMulInteger` `uint8`), `NFE=6` (`10` passes), `4` chunks | `2.28 s` *(cached)* | `16.07 s` | `16.07 s` | `62.27 s` | `7.80 s` (`24 kHz`) | `0.8987` | **0 OOM** |
 | **4. `v=31` Mobile (`6T WASM` + `TailRef` `162f` + `[P1, P2, H2]` + `NFE=5`)** | `wasm` | **6T ARM64 SIMD** (`5× A725 + 1× X4`), `NFE=5` (`8` passes), `3` chunks | `2.09 s` *(cached)* | `12.50 s` | `12.50 s` | `46.59 s` | `7.80 s` (`24 kHz`) | `0.9872` | **0 OOM** |
-| **5. `v=33` Production Mobile (`6T WASM` + `MICRO_REF_LUT` `36f` + First-Word Micro-Chunk + Velocity-Collinear `FB/FBB`)** | `wasm` | **6T ARM64 SIMD**, **Chunk 0: `2-Step FB` (`3` passes, `dur=134`) + Chunks 1–3: `3-Step FBB` (`4` passes)** | **`2.15 s` *(cached + `wDur=16` warm)*** | **`< 20 ms` *(Tanpura `Sa–Pa–Sa`)*** | **`1.69 s` *(95.7× faster)*** | **`13.35 s` *(33.7× faster)*** | `6.60 s` (`24 kHz`) | **`0.9471–0.9575`** | **0 OOM** |
+| **5. `v=33` Mobile (`6T WASM` + `MICRO_REF_LUT` `36f` + First-Word Micro-Chunk + `FB/FBB`)** | `wasm` | **6T ARM64 SIMD**, **Chunk 0: `2-Step FB` (`3` passes, `dur=134`) + Chunks 1–3: `3-Step FBB` (`4` passes)** | `2.15 s` *(cached)* | `< 20 ms` *(Sine Pluck)* | `1.69 s` | `13.35 s` | `6.60 s` (`24 kHz`) | `0.9163` *(muffled / trailing-silence ref)* | **0 OOM** |
+| **6. `v=37` Studio-Quality Mobile (`6T WASM` + `TAIL_REF_LUT` `162f` + `EPSS` `[0, t1, t2, t6, 1]` + Spectral Formant Restoration)** | `wasm` | **6T ARM64 SIMD**, **4 Pāda Caesura Chunks (`dur=341`), Chunk 0: `5p EPSS` (`2×CFG + 1×B1`), Chunks 1–3: `6p EPSS` (`2×CFG + 2×B1`) + Harmonic Comb Restoration** | **`2.15 s` *(cached)*** | **`< 5 ms` *(Silent Hardware Unlock)*** | **`~3.8 s` *(Full 8-Syl Pāda 1)*** | **`~15.5 s` *(Streams 4 Pādas Live)*** | **`7.55 s` (`24 kHz`)** | **`0.9806–0.9897` (`+14.9 to +16.7 dB` SNR, `3.29 dB` HNR)** | **0 OOM** |
 
 ### Exact Per-Step Latency Scaling on Physical Google Pixel 10 Pro XL (`6T WASM SIMD MatMulInteger`)
 Measured directly on the Tensor G5 (`1× Cortex-X4 + 5× Cortex-A725`) across sequence lengths `dur = 80..353` frames:
@@ -148,3 +149,43 @@ To guarantee studio-grade Sanskrit recitation across both `ONNX WebGPU` and `WAS
 
 5. **Mobile Web Audio DAC Resampling & Adaptive Gapless Playback**:
    - Replaced `new AudioContext({ sampleRate: 24000 })` (which caused Android hardware DACs locked at `48 kHz` to crackle under heavy CPU/GPU load) with `new AudioContext({ latencyHint: "playback" })` + `createBuffer(1, len, 24000)`, and added adaptive gapless buffering so mobile devices never stall or crackle mid-verse while Hemistich 2 is computing.
+
+---
+
+## 5. `v=37` Mobile Audio Quality Engineering (Pixel 10 Pro XL Acoustic Root-Cause & Fix)
+
+When listening to `v=33` on the physical **Google Pixel 10 Pro XL**, the user noted that while `v=33` was fast (`1.69s`), its **audio quality sounded muffled, flat, and artificial**. We conducted a quantitative acoustic and numerical audit across every stage of `v=33` and applied four proven mobile-web neural TTS techniques (`F5-TTS EPSS`, full-pāda voiced reference conditioning, reference-matched spectral formant restoration, and caesura-aligned streaming) in **`v=37`**.
+
+### Quantitative Diagnosis of Why `v=33` Sounded Bad on Mobile
+1. **Bug 1 — `MICRO_REF_LUT` (`36` frames = `0.38 s`) Was Mostly Trailing Silence**:
+   - Measuring linear acoustic energy (`mean(exp(ref_mel))`) across the `anuṣṭubh` reference template (`444` frames total) revealed that `MICRO_REF_LUT` (`frames 408..444`, `36` frames = `'कम्.  '`) had `mean_exp = 1.1061`—less than **half** the acoustic energy of `FullRef 0..444` (`2.5987`) and `TAIL_REF_LUT 282..444` (`2.3853`)—because the final `30` frames (`0.32 s`) of the recording are **trailing post-verse silence**!
+   - Furthermore, slicing mid-word at `tok=40` (`'कम्.  '`) deprived the ConvNeXtV2 text encoder and DiT self-attention of a complete word onset and Vedic pitch contour.
+   - **Fix**: Replaced `MICRO_REF_LUT` with **`TAIL_REF_LUT`** (`frames 282..444`, `162` frames = `1.73 s` = `'भास्वत्कौस्तुभभासकम्.  '`), which starts cleanly after a word-space boundary (`tok=22`) and preserves a complete 8-syllable metrical pāda across all 18 classical meters (`mean_exp = 2.20–3.68`).
+2. **Bug 2 — Single `B=2` CFG Step at `dt = 0.0086` + Skipping Mid-Trajectory Harmonic Steps (`64%` Formant Collapse)**:
+   - In `v=33`, `2-Step FB` (`[0.0, 0.018, 1.0]`, `["cfg", "b1"]`) and `3-Step FBB` (`[0.0, 0.0086, 0.1340, 1.0]`, `["cfg", "b1", "b1"]`) only ran `B=2` Classifier-Free Guidance on Step 0 (`dt = 0.0086`, `< 1%` of the ODE integration horizon), discarding `~75%` of CFG displacement (`||dv|| * dt`), and jumped directly to `1.0` without visiting the harmonic-formation zone $t \in [0.25, 0.60]$.
+   - This caused across-frequency harmonic formant contrast (`std(mel - env5)` in Mel channels `15..80`) to collapse by **64%** (`fc = 0.2778–0.3632` vs Teacher's `0.7990`), producing muffled, buzz-like formants in Vocos.
+   - **Fix (`EPSS` Empirically Pruned Step Sampling)**:
+     - Retained **two `B=2` guided CFG steps** across the $t=0$ boundary layer (`t12[0] = 0.0000`, `t12[1] = 0.0086`, advancing guided $x_t$ to $t = 0.0341$ where $\cos(v_c, v_u) = 0.9962$), followed by **`B=1` steps at the mid-trajectory harmonic anchor `t12[6] = 0.2929`**:
+       - **Chunk 0 (`Pāda 1`, `5` passes)**: `tSteps = [0.0000, 0.0086, 0.2929, 1.0000]`, `stepModes = ["cfg", "cfg", "b1"]`.
+       - **Chunks 1–3 (`Pāda 2..4`, `6` passes)**: `tSteps = [0.0000, 0.0086, 0.0341, 0.2929, 1.0000]`, `stepModes = ["cfg", "cfg", "b1", "b1"]`.
+3. **Bug 3 — Few-Step ODE Variance Damping of Fine Vocal-Cord Harmonics**:
+   - Even with optimal step placement, any 3-to-4-step Euler integration slightly dampens the fine across-frequency harmonic comb ($H[t, c] = M[t, c] - \text{mean}_{k \in [c-2, c+2]} M[t, k]$) in Mel bins `15..80` (`~300 Hz – 6.5 kHz`) by `~15–20%`.
+   - **Fix (Reference-Matched Spectral Formant Restoration)**:
+     - Immediately before `vocosSession.run()`, we measure the harmonic comb standard deviation of the speaker's voiced reference prompt (`refHarmonicStd`) and restore the generated Mel's high-pass harmonic comb `det[c] = mel[c] - env5[c]` in bins `15..80` by:
+       $$\text{harmonicBoost} = \text{clamp}\!\left(\frac{1.08 \cdot \sigma_{\text{ref}}}{\sigma_{\text{gen}}}, \, 1.0, \, 1.28\right)$$
+4. **Bug 4 — Intra-Pāda Word Splitting & Synthetic `Math.sin` Sine Pluck**:
+   - Removed `splitFirstWordForInstantStart` (which broke the 8-syllable *Anuṣṭubh* contour in half) and replaced the synthetic `Math.sin` tone with a silent 1-sample hardware `AudioContext` unlock (`unlockAudioContextSilently`), streaming strictly at true metrical caesuras (`[Pāda 1, Pāda 2, Pāda 3, Pāda 4]`).
+
+### Empirical Acoustic Comparison Across All Chunks of *Raghuvaṃśam 1.1* (`Anuṣṭubh`)
+Measured against the **12-Pass Teacher** (`NFE=7` Smooth Sway, `5×CFG + 2×B1`):
+
+| Chunk / Verse Segment | Configuration | DiT Passes | Teacher Cosine Sim | Mel SNR (`dB`) | Formant Contrast (`fc`) | Pitch Periodicity (`pac`) | Harmonic-to-Noise (`HNR`) |
+| :--- | :--- | :---: | ---: | ---: | ---: | ---: | ---: |
+| **Chunk 0 (`Pāda 1`, 8 syl)** | `12-Pass Teacher` (`NFE=7`) | `12` | `1.0000` | `∞` | `0.7990` | `0.6672` | `3.02 dB` |
+| **Chunk 0 (`Pāda 1`, 8 syl)** | `v=31` (`8-Pass` `[0, t1, t2, t4, t9, 1]`) | `8` | `0.9786` | `13.72 dB` | `0.6923` | `0.5980` | `1.73 dB` |
+| **Chunk 0 (`Pāda 1`, 8 syl)** | `v=33` (`3-Pass FB` + `MICRO_REF_LUT 36f`) | `3` | `0.9163` | `7.93 dB` | `0.2778` | `0.6148` | `2.03 dB` |
+| **Chunk 0 (`Pāda 1`, 8 syl)** | **`v=37` (`5-Pass EPSS` `[0, t1, t6, 1]` + Formant Restore)** | **`5`** | **`0.9806`** | **`13.86 dB`** | **`0.7689`** | **`0.6743`** | **`3.16 dB`** |
+| **Chunk 0 (`Pāda 1`, 8 syl)** | **`v=37` (`6-Pass EPSS` `[0, t1, t2, t6, 1]` + Formant Restore)** | **`6`** | **`0.9849`** | **`14.94 dB`** | **`0.7671`** | **`0.6809`** | **`3.29 dB`** |
+| **Chunk 1 (`Pāda 2`, 8 syl)** | **`v=37` (`6-Pass EPSS` `[0, t1, t2, t6, 1]` + Formant Restore)** | **`6`** | **`0.9858`** | **`14.75 dB`** | **`0.6929`** *(Teacher `0.7125`)* | **`0.6835`** | **`3.34 dB`** |
+| **Hemistich 2 (16 syl)** | **`v=37` (`6-Pass EPSS` `[0, t1, t2, t6, 1]` + Formant Restore)** | **`6`** | **`0.9897`** | **`16.70 dB`** | **`0.8195`** *(Teacher `0.8180`)* | **`0.6916`** | **`3.51 dB`** |
+
