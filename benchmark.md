@@ -20,27 +20,45 @@ Tested over local Wi-Fi via **Wireless ADB + Chrome DevTools Protocol (`wifidebu
 | **Test Verse** | *Raghuvaṃśam 1.1* (`वागर्थाविव संपृक्तौ वागर्थप्रतिपत्तये । जगतः पितरौ वन्दे पार्वतीपरमेश्वरौ ॥`, *Anuṣṭubh*, 32 syllables) |
 
 ### Physical Pixel 10 Pro XL Execution Results (Live on `h3manth.com/ai/sanskrit-tts/#studio`)
-| Execution Mode | Active Provider | Threads / Schedule / Ref | Session Init (`vagdhenu-models-v10`) | First Chunk TTFA | Full Verse Total | Generated Audio | Mel SNR / DTW Cosine | Crash / OOM |
-| :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | :---: |
-| **1. Initial Mobile Baseline (Screen Locked / Unoptimized)** | `wasm` / `webgpu` | Full Ref (`444f`), Full Hemistich (`dur=933`), `NFE=7` (`12` passes) | `29.20 s` *(no cache)* | `161.67 s` | `449.41 s` | `8.87 s` (`24 kHz`) | `+10.98 dB` / `0.9595` | **0 OOM** |
-| **2. Mobile WebGPU (`optLevel: "disabled"` on PowerVR)** | `webgpu` | PowerVR D-Series (`88` per-step CPU→GPU `Cast` copies) | `25.33 s` | `151.73 s` | `303.40 s` | `8.87 s` (`24 kHz`) | `+24.12 dB` / `0.9981` | **0 OOM** |
-| **3. `v=28` Mobile 6T WASM + TailRef (`162f`) + 4-Pāda Stream (`NFE=6`)** | `wasm` | **6T ARM64 SIMD** (`MatMulInteger` `uint8`), `NFE=6` (`10` passes), `4` chunks | `2.28 s` *(cached)* | **`16.07 s`** | **`62.27 s`** | `7.80 s` (`24 kHz`) | `+17.27 dB` / `0.8987` | **0 OOM** |
-| **4. `v=31` Production Mobile (`6T WASM` + `TailRef` + `[P1, P2, H2]` + `NFE=5`)** | `wasm` | **6T ARM64 SIMD** (`5× A725 + 1× X4`), **`NFE=5` (`[0,1,2,4,9,12]` `8` passes)**, `3` chunks | **`2.09 s` *(cached)*** | **`12.50 s` *(12.9× faster)*** | **`46.59 s` *(9.6× faster)*** | `7.80 s` (`24 kHz`) | **`+15.93 dB` / `0.9872`** | **0 OOM** |
+| Execution Mode | Active Provider | Threads / Schedule / Ref | Session Init (`vagdhenu-models-v10`) | Perceived Latency | First Audio Token (TTFA) | Full Verse Total | Generated Audio | Mel Cosine Sim | Crash / OOM |
+| :--- | :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :---: |
+| **1. Initial Mobile Baseline (Screen Locked / Unoptimized)** | `wasm` / `webgpu` | Full Ref (`444f`), Full Hemistich (`dur=933`), `NFE=7` (`12` passes) | `29.20 s` *(no cache)* | `161.67 s` | `161.67 s` | `449.41 s` | `8.87 s` (`24 kHz`) | `0.9595` | **0 OOM** |
+| **2. Mobile WebGPU (`optLevel: "disabled"` on PowerVR)** | `webgpu` | PowerVR D-Series (`88` per-step CPU→GPU `Cast` copies) | `25.33 s` | `151.73 s` | `151.73 s` | `303.40 s` | `8.87 s` (`24 kHz`) | `0.9981` | **0 OOM** |
+| **3. `v=28` Mobile 6T WASM + TailRef (`162f`) + 4-Pāda Stream (`NFE=6`)** | `wasm` | **6T ARM64 SIMD** (`MatMulInteger` `uint8`), `NFE=6` (`10` passes), `4` chunks | `2.28 s` *(cached)* | `16.07 s` | `16.07 s` | `62.27 s` | `7.80 s` (`24 kHz`) | `0.8987` | **0 OOM** |
+| **4. `v=31` Mobile (`6T WASM` + `TailRef` `162f` + `[P1, P2, H2]` + `NFE=5`)** | `wasm` | **6T ARM64 SIMD** (`5× A725 + 1× X4`), `NFE=5` (`8` passes), `3` chunks | `2.09 s` *(cached)* | `12.50 s` | `12.50 s` | `46.59 s` | `7.80 s` (`24 kHz`) | `0.9872` | **0 OOM** |
+| **5. `v=33` Production Mobile (`6T WASM` + `MICRO_REF_LUT` `36f` + First-Word Micro-Chunk + Velocity-Collinear `FB/FBB`)** | `wasm` | **6T ARM64 SIMD**, **Chunk 0: `2-Step FB` (`3` passes, `dur=134`) + Chunks 1–3: `3-Step FBB` (`4` passes)** | **`2.15 s` *(cached + `wDur=16` warm)*** | **`< 20 ms` *(Tanpura `Sa–Pa–Sa`)*** | **`1.69 s` *(95.7× faster)*** | **`13.35 s` *(33.7× faster)*** | `6.60 s` (`24 kHz`) | **`0.9471–0.9575`** | **0 OOM** |
 
-### Five Mobile Engineering Optimizations Verified on Pixel 10 Pro XL (`161.67s → 12.50s` First Audio)
-1. **Default Mobile to 6-Thread `WASM SIMD` (`MatMulInteger` on the 6 Big Tensor G5 Cores)**:
-   - On the Pixel 10 Pro XL's **Imagination PowerVR D-Series** GPU, isolated microbenchmarks (`task-4383`) showed that 88 `1024×1024` FP16 WebGPU `MatMul` dispatches alone take `5,751 ms` per B1 pass when `graphOptimizationLevel: "disabled"` is used (due to 88 CPU-to-GPU weight copies per step), or hang the PowerVR shader compiler during `ConstantFolding` when `graphOptimizationLevel: "all"` is used on 22 DiT blocks.
-   - By contrast, the Tensor G5's **6 big CPU cores** (`1× Cortex-X4 @ 3.78 GHz` + `5× Cortex-A725 @ 3.05 GHz`) compile all 3 `WASM SIMD` (`MatMulInteger`) sessions in **`2.09 s`** from the Browser Cache API and execute integer GEMMs at full turbo clock with zero shader stalls.
-2. **Tail-Aligned Acoustic Reference (`TAIL_REF_LUT`, `0.8987` DTW Mel Cosine Similarity)**:
-   - Earlier prefix slicing (`ref_mel[:161]`) failed (`4.13 dB` SNR) because cutting the reference prompt in the middle of a word stripped the phrase-final cadence and trailing `.  ` (`[1, 0, 0]`) boundary tokens right where `cond_mel` transitions into `gen_mel`.
-   - Instead, we precomputed **`TAIL_REF_LUT`** across all 20 meters in `baked_bank.bin`: slicing from the **acoustic word/pāda silence minimum in the second half (`pause_frame`) to the end of `ref_mel`**, and from the exact matching word boundary (`start_tok`) to the end of `ref_tokens`.
-   - This preserves the exact phrase-final cadence and trailing `.  ` boundary tokens while cutting `anuṣṭubh` reference frames from `444` to `162` (`śārdūlavikrīḍita` from `879` to `148`, `sragdharā` from `1091` to `153`), reducing first-chunk sequence length `dur` from `933` frames down to **`353` frames (`2.64×` shorter)** and achieving **`0.8987` DTW Mel Cosine Similarity** against the full-reference gold standard.
-3. **Hybrid `[Pāda 1, Pāda 2, Hemistich 2]` Live WebAudio Streaming (`streamedLive = true`)**:
-   - Splitting only the first hemistich at its word caesura (`splitHemistichAtCaesura`) lets **Part 1 (`8 syllables`, `dur = 353`) start playing live in `12.50 s`**, while **Hemistich 2 (`16 syllables`, `dur = 528`) synthesizes in a single chunk**, saving an entire extra reference pass (`~16 s` saved on total synthesis time vs 4-chunk splitting).
-4. **Optimized 5-Step Sway Trajectory (`t12[[0, 1, 2, 4, 9, 12]]` `FFFBB` = `8` B1-Eq Passes)**:
-   - Exhaustive search over all $\binom{11}{4} = 330$ subsets of the 12-step sway grid identified `t12[[0, 1, 2, 4, 9, 12]]` with `["cfg", "cfg", "cfg", "b1", "b1"]` (`8` B1-equivalent passes vs `10` for `NFE=6` and `12` for `NFE=7`), achieving **`+15.93 dB` Mel SNR and `0.9872` Mel Cosine Similarity** while cutting per-chunk latency by another **20%**.
-5. **Browser Cache API Enabled on Mobile (`vagdhenu-models-v10`) + Screen Wake Lock**:
-   - Enabled `Cache.put()` on mobile (`skipCacheWrite: false` in `web/vagdhenu-onnx.js`) while releasing temporary `ArrayBuffer` references immediately after `InferenceSession.create()`, eliminating the `255 MB` (`29.2 s`) re-download on reloads (`warmMs = 2.09 s`).
+### Exact Per-Step Latency Scaling on Physical Google Pixel 10 Pro XL (`6T WASM SIMD MatMulInteger`)
+Measured directly on the Tensor G5 (`1× Cortex-X4 + 5× Cortex-A725`) across sequence lengths `dur = 80..353` frames:
+
+| Sequence Length `dur` (frames) | `condSession` (`1×` per chunk) | `1× B=1` DiT Step (`ms`) | `1× B=2` Guided CFG Step (`ms`) | `vocosSession` (`1×` per chunk) | `2-Step FB` Total (`1 CFG + 1 B1`) |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| **`80 frames`** | `47 ms` | **`295 ms`** | **`552 ms`** | `16 ms` | **`910 ms` (`0.91 s`)** |
+| **`96 frames`** | `22 ms` | **`393 ms`** | **`849 ms`** | `18 ms` | **`1,282 ms` (`1.28 s`)** |
+| **`112 frames`** | `23 ms` | **`412 ms`** | **`807 ms`** | `22 ms` | **`1,264 ms` (`1.26 s`)** |
+| **`128 frames`** | `27 ms` | **`480 ms`** | **`942 ms`** | `28 ms` | **`1,477 ms` (`1.48 s`)** |
+| **`134 frames` (`Chunk 0`)** | `29 ms` | **`510 ms`** | **`1,010 ms`** | `30 ms` | **`1,579 ms` (`~1.69 s` E2E)** |
+| **`160 frames`** | `34 ms` | **`654 ms`** | **`1,203 ms`** | `36 ms` | **`1,927 ms` (`1.93 s`)** |
+| **`353 frames` (`v=31` Chunk 0)** | `74 ms` | `1,519 ms` | `3,010 ms` | `95 ms` | `12,500 ms` *(8 passes)* |
+
+### Seven Mobile Engineering Optimizations Verified on Pixel 10 Pro XL (`161.67s → 12.50s → 1.69s` First Audio)
+1. **Exploiting Velocity Collinearity in Sway Flow-Matching (`2-Step FB` & `3-Step FBB` Schedules)**:
+   - Computing the $7 \times 7$ cosine similarity matrix of conditional velocities $v_{\text{cond}}(x_t, t)$ across the Sway-ODE trajectory (`t12[[0, 1, 2, 3, 5, 8, 10, 12]]`) revealed a fundamental structural property of the trained Vāgdhenu DiT:
+     - At **Step 0 (`t = 0.0000`)**, $x_0$ is pure Gaussian noise and only `static_bias` carries text/speaker conditioning (`||pred - uncond|| = 279.97`, `93%` of `||pred||`), so **Classifier-Free Guidance (`B=2`) is essential at Step 0**.
+     - Once Step 0 advances $x_t$ to $t \in [0.0086, 0.020]$, $x_t$ carries the phonetic/prosodic structure into self-attention, and **all subsequent conditional velocities from $t = 0.0086$ to $t = 1.000$ are `99.2%–99.87%` collinear (`cos_sim = 0.9920–0.9987`) with constant norm (`521.68 → 518.71`)**!
+   - Therefore, **Chunk 0** uses a **`2-Step FB` schedule (`[0.0, 0.018, 1.0]`, `["cfg", "b1"]`, `3` B1-eq passes, `0.9471` Mel cosine similarity)** to deliver the first audio token in **`1.69 s`**, while **Chunks 1–3** stream in the background using **`3-Step FBB` (`[0.0, 0.0086, 0.1340, 1.0]`, `["cfg", "b1", "b1"]`, `4` B1-eq passes, `0.9548–0.9575` Mel cosine similarity)**.
+2. **First-Word Instant-Start Micro-Chunking (`splitFirstWordForInstantStart`) + Single-Syllable Reference (`MICRO_REF_LUT`)**:
+   - Splitting Pāda 1 after its first word (`2–6` akṣaras, e.g. `वागर्थाविव` = `5` akṣaras) and pairing it with **`MICRO_REF_LUT`** (an exact syllable-aligned `36–80` frame phrase-final reference slice ending with `.  `, e.g. `anuṣṭubh: { frame: 408, tok: 40, sps: 0.21 }`, `ref = 36` frames = `'कम्.  '`) reduces **Chunk 0 sequence length `dur` from `933` frames (`v=1`) and `353` frames (`v=31`) down to `134` frames** (`402` frame-passes total vs `2,824` in `v=31` — a **`7.0×` compute reduction on Chunk 0**).
+3. **Active Voice RMS Calibration Before `gateAudio`**:
+   - At `2–3` ODE steps, raw Vocos waveform amplitude is slightly lower (`RMS ≈ 0.075`) than 12-step trajectories (`RMS ≈ 0.14`). Calibrating each chunk's active voice RMS (`|y[i]| > 0.015`) to `entry.ref_rms` (`~0.095`) *before* `gateAudio` (`voice = 0.08`) ensures zero clipped leading/trailing syllables and seamless loudness continuity between `2-Step FB` Chunk 0 and `3-Step FBB` Chunks 1–3.
+4. **Instant `<20 ms` Perceived Latency via WebAudio Vedic Tanpura / Śruti Intonation Pluck (`138.59 Hz` `C#3`)**:
+   - On button tap, `startInstantTanpuraPluck()` synchronously synthesizes a gentle `Sa–Pa–Sa` harmonic pluck at `138.59 Hz` (`C#3`, matching the Vāgdhenu speaker's exact tonic pitch `ādhāra-ṣaḍja`), giving `<20 ms` tactile-auditory feedback while unlocking the mobile hardware DAC, and crossfading (`45 ms` ramp) into Chunk 0 the instant it resolves at `1.69 s`.
+5. **Default Mobile to 6-Thread `WASM SIMD` (`MatMulInteger`) + `wDur = 16` PThread Pool Pre-Warm**:
+   - Benchmarking synthetic 88-MatMul models (`task-4671`) on the Pixel 10 Pro XL proved that `6T WASM SIMD MatMulInteger` (`181 ms` at `L=96`) is **`10.5×` faster** than native `WebGPU FP16` (`1,916 ms`) and **`14.0×` faster** than `WebGPU Q4` (`2,538 ms`) on the Imagination PowerVR D-Series GPU. Pre-warming the sessions with a compact `wDur = 16` pass during `initOnnxSessions` wakes the 6 ARMv9 worker threads ahead of time, saving `~350 ms` on the first click.
+6. **Hybrid `[Word 1, Rest of Pāda 1, Pāda 2, Hemistich 2]` Live WebAudio Streaming (`streamedLive = true`)**:
+   - Streams all 4 parts live through `AudioContext({ latencyHint: "playback" })` with calibrated caesura pauses (`0.06 s` intra-pāda micro-breath after Word 1, `0.18 s` after Pāda 1, `0.55 s` daṇḍa pause after Pāda 2), finishing the entire 32-syllable śloka in **`13.35 s`** (`33.7×` faster than baseline).
+7. **Browser Cache API Enabled on Mobile (`vagdhenu-models-v10`) + Screen Wake Lock**:
+   - Enabled `Cache.put()` on mobile (`skipCacheWrite: false` in `web/vagdhenu-onnx.js`) while releasing temporary `ArrayBuffer` references immediately after `InferenceSession.create()`, eliminating the `255 MB` (`29.2 s`) re-download on reloads (`warmMs = 2.15 s`).
    - Added `navigator.wakeLock.request("screen")` during synthesis, and documented two critical Wireless ADB pitfalls in `wifidebugging`:
      - When an Android screen locks on battery over Wireless ADB, `PowerManagerService` throttles all 8 Tensor G5 cores down to `400 MHz` (`9×` slower, turning `16s` into `161.67s`).
      - Enabling `cmd power set-fixed-performance-mode-enabled true` caps Cortex-A725/X4 `scaling_max_freq` to `1.78 GHz / 2.07 GHz` (`55%` of turbo). Always use `cmd power set-fixed-performance-mode-enabled false` with `dumpsys battery set usb 1 && svc power stayon true`.
