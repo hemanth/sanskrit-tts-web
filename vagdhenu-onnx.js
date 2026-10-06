@@ -449,6 +449,29 @@ export function resolveModelBaseUrl(baseUrl = null, backendMode = "onnx") {
   return baseUrl;
 }
 
+const TAIL_REF_LUT = {
+  "anuṣṭubh": { frame: 282, tok: 23, sps: 0.24 },
+  "pramāṇikā": { frame: 142, tok: 15, sps: 0.275 },
+  "vasantatilakā": { frame: 315, tok: 37, sps: 0.259 },
+  "upajāti": { frame: 323, tok: 26, sps: 0.24 },
+  "indravajrā": { frame: 367, tok: 35, sps: 0.24 },
+  "upendravajrā": { frame: 162, tok: 32, sps: 0.269 },
+  "vaṃśastha": { frame: 322, tok: 35, sps: 0.24 },
+  "rathoddhatā": { frame: 969, tok: 72, sps: 0.24 },
+  "śālinī": { frame: 311, tok: 27, sps: 0.248 },
+  "indravaṃśā": { frame: 381, tok: 43, sps: 0.2484 },
+  "drutavilambita": { frame: 395, tok: 22, sps: 0.2427 },
+  "bhujaṅgaprayāta": { frame: 347, tok: 29, sps: 0.24 },
+  "mālinī": { frame: 508, tok: 48, sps: 0.2575 },
+  "śārdūlavikrīḍita": { frame: 731, tok: 67, sps: 0.24 },
+  "sragdharā": { frame: 938, tok: 92, sps: 0.31 },
+  "vrutta-1": { frame: 420, tok: 36, sps: 0.2432 },
+  "gadya": { frame: 497, tok: 50, sps: 0.26 },
+  "gadya_mbtn": { frame: 497, tok: 57, sps: 0.26 },
+  "prime_chata": { frame: 517, tok: 43, sps: 0.24 },
+  "prime_jaya": { frame: 454, tok: 38, sps: 0.24 },
+};
+
 export class VagdhenuWebEngine {
   constructor(baseUrl = null, backendMode = null) {
     this.customBaseUrl = baseUrl;
@@ -556,7 +579,7 @@ export class VagdhenuWebEngine {
     this.provider = this.backendMode === "onnx" && hasWebGpu ? "webgpu" : "wasm";
     const hc = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
     const optimalThreads = this.isMobile
-      ? Math.min(6, Math.max(4, hc - 2))
+      ? Math.min(6, hc)
       : hc <= 12
         ? Math.min(4, hc)
         : 6;
@@ -729,15 +752,15 @@ export class VagdhenuWebEngine {
     const primes = m.primes || {};
     if (diDepth >= 3) {
       for (const k of ["prime_jaya", "prime_chata"]) {
-        if (primes[k] && (primes[k].di_max || 0) >= diDepth) return primes[k];
+        if (primes[k] && (primes[k].di_max || 0) >= diDepth) return { ...primes[k], _key: k };
       }
     }
     if (monoDepth >= 2 && primes.prime_mono && (primes.prime_mono.mono_max || 0) >= monoDepth) {
-      return primes.prime_mono;
+      return { ...primes.prime_mono, _key: "prime_mono" };
     }
     const key = (meter || "").toLowerCase().replace(/\.wav$/, "");
     const resolved = m.aliases[key] || m.aliases[m.fallback_meter] || Object.keys(m.entries)[0];
-    return m.entries[resolved];
+    return { ...m.entries[resolved], _key: resolved };
   }
 
   async synthesizeInBrowser(
@@ -748,18 +771,28 @@ export class VagdhenuWebEngine {
     await this.initOnnxSessions(onProgress);
     const ort = this.ort || (await resolveOrt());
 
-    const basePadas = Array.isArray(text) ? text : splitPadas(text);
+    let basePadas = Array.isArray(text) ? text : splitPadas(text);
     if (!basePadas.length) throw new Error("Please enter a Sanskrit verse.");
+
+    // Hybrid Mobile Streaming: split ONLY the first hemistich at its word caesura into [Pada 1, Pada 2, Hemistich 2]
+    // so Part 1 (dur=353, 8 passes) starts playing in ~13s while Hemistich 2 renders in one chunk (saving an extra reference pass).
+    if (this.isMobile && basePadas.length === 2) {
+      const firstSplit = splitHemistichAtCaesura(basePadas[0]);
+      if (firstSplit.length === 2) {
+        basePadas = [firstSplit[0], firstSplit[1], basePadas[1]];
+      }
+    }
 
     const { padas, pieces: rawPieces } = preparePieces(basePadas, noSandhi);
     if (!rawPieces.length) throw new Error("Please enter a Sanskrit verse.");
 
-    // Synthesize full hemistichs (2 pieces per standard verse) to preserve natural sandhi & prosodic breath contour
     const pieces =
       rawPieces.length === 4
-        ? [`${rawPieces[0]} ${rawPieces[1]}`, `${rawPieces[2]} ${rawPieces[3]}`]
+        ? this.isMobile
+          ? [rawPieces[0], rawPieces[1], `${rawPieces[2]} ${rawPieces[3]}`]
+          : [`${rawPieces[0]} ${rawPieces[1]}`, `${rawPieces[2]} ${rawPieces[3]}`]
         : rawPieces;
-    const unitLabel = pieces.length > 2 ? "Pāda" : "Hemistich";
+    const unitLabel = pieces.length > 2 ? "Part" : "Hemistich";
 
     const resolvedMeter = !meter || meter === "auto" ? detectMeterKey(text) || "vasantatilaka" : meter;
     let monoMax = 1;
@@ -771,12 +804,25 @@ export class VagdhenuWebEngine {
     }
 
     const entry = this.getRefEntry(resolvedMeter, monoMax, diMax);
-    const refMel = decodeFp16Buffer(this.bankBin, entry.byte_offset, entry.mel_frames, 100);
-    const refMelFrames = entry.mel_frames;
-    const refAudioLen = entry.ref_audio_len;
-    const refLenSec = entry.ref_len_sec;
-    const refTokens = entry.ref_tokens;
-    const sps = entry.sec_per_syll;
+    const fullRefMel = decodeFp16Buffer(this.bankBin, entry.byte_offset, entry.mel_frames, 100);
+    const useTailRef = (this.isMobile || this.provider === "wasm") && TAIL_REF_LUT[entry._key];
+    let refMel = fullRefMel;
+    let refMelFrames = entry.mel_frames;
+    let refAudioLen = entry.ref_audio_len;
+    let refLenSec = entry.ref_len_sec;
+    let refTokens = entry.ref_tokens;
+    let sps = entry.sec_per_syll;
+
+    if (useTailRef) {
+      const tInfo = TAIL_REF_LUT[entry._key];
+      refMel = fullRefMel.subarray(tInfo.frame * 100);
+      refMelFrames = entry.mel_frames - tInfo.frame;
+      refAudioLen = refMelFrames;
+      refLenSec = (refMelFrames * HOP) / SR;
+      refTokens = entry.ref_tokens.slice(tInfo.tok);
+      sps = tInfo.sps;
+    }
+
     const vmap = this.bankManifest.vocab_char_map;
     const y0Meta = this.bankManifest.y0_seed60;
 
@@ -787,13 +833,13 @@ export class VagdhenuWebEngine {
       t12[i] = u - 1.0 * (Math.cos((Math.PI / 2) * u) - 1.0 + u);
     }
 
-    // Build smooth ODE time schedule & step modes (default NFE=7: 24.12 dB Mel SNR, 0.9981 cosine similarity)
+    // Build smooth ODE time schedule & step modes (default NFE=7: 24.12 dB Mel SNR; NFE=5 [0,1,2,4,9,12]: 15.93 dB SNR, 0.9872 cosine)
     let tSteps;
     let stepModes;
     const tailThr = 0.035;
     const effectiveNfe = Math.max(5, nfe || 7);
     if (effectiveNfe <= 5) {
-      tSteps = new Float32Array([t12[0], t12[1], t12[2], t12[5], t12[8], 1.0]);
+      tSteps = new Float32Array([t12[0], t12[1], t12[2], t12[4], t12[9], 1.0]);
       stepModes = ["cfg", "cfg", "cfg", "b1", "b1"];
     } else if (effectiveNfe <= 6) {
       tSteps = new Float32Array([t12[0], t12[1], t12[2], t12[4], t12[7], t12[10], 1.0]);
@@ -823,10 +869,11 @@ export class VagdhenuWebEngine {
     const totalSteps = pieces.length * activeSteps;
     let completedSteps = 0;
 
-    // Studio mid-verse caesura pause matching src/render_core.py (gap=0.55s, gap_halant=0.20s)
-    const gaps = pieces.map(
-      (p) => new Float32Array(Math.floor(0.55 * SR) + (endsHalant(p) ? Math.floor(0.20 * SR) : 0))
-    );
+    // Studio mid-verse caesura pause matching src/render_core.py (0.18s intra-hemistich after Pada 1, 0.55s inter-hemistich)
+    const gaps = pieces.map((p, idx) => {
+      const baseGap = pieces.length >= 3 && idx === 0 ? 0.18 : 0.55;
+      return new Float32Array(Math.floor(baseGap * SR) + (endsHalant(p) ? Math.floor(0.20 * SR) : 0));
+    });
     const slp0 = alignSlp1(padas[0]);
     const fric = Boolean(slp0) && ["S", "z", "s", "h"].includes(slp0[0]);
     const halant = endsHalant(pieces[pieces.length - 1]);

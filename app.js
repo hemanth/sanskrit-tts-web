@@ -1,5 +1,5 @@
-import { analyzeVerse } from "./vagdhenu-text.js?v=27";
-import { VagdhenuWebEngine, isMobileDevice } from "./vagdhenu-onnx.js?v=27";
+import { analyzeVerse } from "./vagdhenu-text.js?v=31";
+import { VagdhenuWebEngine, isMobileDevice } from "./vagdhenu-onnx.js?v=31";
 
 const PRESETS = [
   {
@@ -92,7 +92,7 @@ function updateHardwareBadge() {
   const hasWebGpu = typeof navigator !== "undefined" && "gpu" in navigator;
   const hc = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
   const isMob = isMobileDevice();
-  const pCoreThreads = isMob ? Math.min(6, Math.max(4, hc - 2)) : hc <= 12 ? Math.min(4, hc) : 6;
+  const pCoreThreads = isMob ? Math.min(6, hc) : hc <= 12 ? Math.min(4, hc) : 6;
   const threads =
     typeof window !== "undefined" && window.crossOriginIsolated
       ? pCoreThreads
@@ -329,7 +329,14 @@ chantBtn.addEventListener("click", async () => {
   let firstAudioSec = null;
   let nextPlayTime = 0;
   let streamedLive = true;
+  let wakeLockSentinel = null;
   const chantBtnLabel = chantBtn.querySelector(".chant-btn-label");
+
+  if (typeof navigator !== "undefined" && navigator.wakeLock?.request) {
+    navigator.wakeLock.request("screen").then((s) => {
+      wakeLockSentinel = s;
+    }).catch(() => {});
+  }
 
   let timerInterval = setInterval(() => {
     if (firstAudioSec === null) {
@@ -354,7 +361,7 @@ chantBtn.addEventListener("click", async () => {
     });
     startTime = performance.now();
 
-    // 100% Client-Side Browser ONNX Execution with Immediate Hemistich Audio Streaming
+    // 100% Client-Side Browser ONNX Execution with Immediate Hemistich/Pada Audio Streaming
     const res = await webEngine.synthesizeInBrowser(
       text,
       {
@@ -435,6 +442,10 @@ chantBtn.addEventListener("click", async () => {
     progressFill.style.width = "0%";
   } finally {
     clearInterval(timerInterval);
+    if (wakeLockSentinel) {
+      wakeLockSentinel.release().catch(() => {});
+      wakeLockSentinel = null;
+    }
     if (chantBtnLabel) {
       chantBtnLabel.textContent = "Chant Śloka in Browser";
     }
@@ -510,8 +521,9 @@ async function detectBestBackendAndPrewarm() {
     await webEngine.setBackendMode("wasm");
   }
   if (isMob && nfeRange && nfeVal) {
-    nfeRange.value = "6";
-    nfeVal.textContent = "6";
+    nfeRange.min = "5";
+    nfeRange.value = "5";
+    nfeVal.textContent = "5";
   }
   updateHardwareBadge();
 
