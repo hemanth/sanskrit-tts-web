@@ -1,5 +1,5 @@
-import { analyzeVerse } from "./vagdhenu-text.js?v=37";
-import { VagdhenuWebEngine, isMobileDevice } from "./vagdhenu-onnx.js?v=37";
+import { analyzeVerse } from "./vagdhenu-text.js?v=38";
+import { VagdhenuWebEngine, isMobileDevice } from "./vagdhenu-onnx.js?v=38";
 
 const PRESETS = [
   {
@@ -242,6 +242,7 @@ function drawWaveformFromSamples(data, fractionComplete = 1.0) {
 
 let activeStreamCtx = null;
 let activeStreamSources = [];
+let currentAudioObjectUrl = null;
 
 function stopActiveStream() {
   for (const src of activeStreamSources) {
@@ -403,6 +404,10 @@ chantBtn.addEventListener("click", async () => {
             const src = activeStreamCtx.createBufferSource();
             src.buffer = audioBuf;
             src.connect(activeStreamCtx.destination);
+            src.onended = () => {
+              const idx = activeStreamSources.indexOf(src);
+              if (idx >= 0) activeStreamSources.splice(idx, 1);
+            };
             const startAt = Math.max(activeStreamCtx.currentTime + 0.025, nextPlayTime);
             src.start(startAt);
             nextPlayTime = startAt + audioBuf.duration;
@@ -426,6 +431,12 @@ chantBtn.addEventListener("click", async () => {
     progressFill.style.width = "100%";
     statusText.textContent = `100% In-Browser (${webEngine.provider.toUpperCase()}) · First chunk ${ttfa}s (Total ${elapsed}s) · Meter: ${res.meter} (${res.durationSec.toFixed(1)}s audio)`;
     playerCard.hidden = false;
+    if (currentAudioObjectUrl && currentAudioObjectUrl !== res.url) {
+      try {
+        URL.revokeObjectURL(currentAudioObjectUrl);
+      } catch {}
+    }
+    currentAudioObjectUrl = res.url;
     audioPlayer.src = res.url;
     downloadLink.href = res.url;
     if (!streamedLive) {
@@ -438,6 +449,10 @@ chantBtn.addEventListener("click", async () => {
         const src = activeStreamCtx.createBufferSource();
         src.buffer = audioBuf;
         src.connect(activeStreamCtx.destination);
+        src.onended = () => {
+          const idx = activeStreamSources.indexOf(src);
+          if (idx >= 0) activeStreamSources.splice(idx, 1);
+        };
         src.start(activeStreamCtx.currentTime + 0.05);
         activeStreamSources.push(src);
       } else {
@@ -495,6 +510,21 @@ async function detectBestBackendAndPrewarm() {
       const reg = await navigator.serviceWorker.register("./coi-sw.js");
       if (reg && !sessionStorage.getItem("vagdhenu_coi_reloaded")) {
         sessionStorage.setItem("vagdhenu_coi_reloaded", "1");
+        if (navigator.serviceWorker.controller) {
+          window.location.reload();
+          return;
+        }
+        await new Promise((resolve) => {
+          const onController = () => {
+            navigator.serviceWorker.removeEventListener("controllerchange", onController);
+            resolve();
+          };
+          navigator.serviceWorker.addEventListener("controllerchange", onController);
+          setTimeout(() => {
+            navigator.serviceWorker.removeEventListener("controllerchange", onController);
+            resolve();
+          }, 1200);
+        });
         window.location.reload();
         return;
       }

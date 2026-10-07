@@ -3,10 +3,10 @@
  *
  * Supports two execution backends:
  *   1. "browser" (100% Client-Side WebGPU / WebAssembly SIMD via onnxruntime-web):
- *      - Caches baked_bank.bin (2.45 MB), vagdhenu_vocos_q8.onnx (~18 MB),
- *        vagdhenu_cond_q8.onnx (~20 MB), and vagdhenu_dit_step_q8.onnx (~200 MB)
- *        in the browser Cache API (`vagdhenu-models-v2`).
- *      - Executes Static Conditioner (1x) -> Sway-ODE Loop with Smart CFG Delta Caching -> Vocos (1x)
+ *      - Caches baked_bank.bin (2.84 MB), vagdhenu_vocos_q8.onnx (~56 MB),
+ *        vagdhenu_cond_q8.onnx (~19 MB), and vagdhenu_dit_step_q8.onnx / vagdhenu_dit_step_wasm_q8.onnx (~184–199 MB)
+ *        in the browser Cache API (`vagdhenu-models-v10`).
+ *      - Executes Static Conditioner (1x) -> Sway-ODE Loop with EPSS Flow-Matching -> Reference-Matched Spectral Formant Restoration -> Vocos (1x)
  *        -> Fricative/Halant-aware Acoustic Gate -> 24kHz WAV encoding entirely in JS.
  *   2. "server" (Fast Local / Edge API via BakedFastEngine):
  *      - Zero weight download on mobile; synthesizes a full shloka in ~5s via /api/chant.
@@ -424,7 +424,6 @@ async function fetchWithCache(url, onProgress, { skipCacheWrite = false } = {}) 
 
 export const HF_WASM_BASE = "https://huggingface.co/gnumanth/sanskrit-tts-wasm/resolve/main";
 export const HF_ONNX_BASE = "https://huggingface.co/gnumanth/sanskrit-tts-onnx/resolve/main";
-const HF_MODEL_BASE = HF_ONNX_BASE;
 
 export function resolveModelBaseUrl(baseUrl = null, backendMode = "onnx") {
   if (!baseUrl) {
@@ -790,7 +789,7 @@ export class VagdhenuWebEngine {
 
   async synthesizeInBrowser(
     text,
-    { meter = "auto", noSandhi = false, nfe = 7, cfg = 3.0, speed = 0.9, seed = 60, onChunk = null } = {},
+    { meter = "auto", noSandhi = false, nfe = null, cfg = 3.0, speed = 0.9, seed = 60, onChunk = null } = {},
     onProgress
   ) {
     await this.initOnnxSessions(onProgress);
@@ -803,10 +802,12 @@ export class VagdhenuWebEngine {
     // Split strictly at true metrical caesuras (pāda boundaries) — NEVER inside a pāda!
     // Keeping all 4 pādas at 8 syllables each (dur=341 instead of dur=522) avoids the 2.35x quadratic
     // self-attention cost of a 16-syllable hemistich and enables real-time background streaming.
+    let firstHemistichSplit = false;
     if (this.isMobile) {
       if (basePadas.length === 2) {
         const firstSplit = splitHemistichAtCaesura(basePadas[0]);
         const secondSplit = splitHemistichAtCaesura(basePadas[1]);
+        firstHemistichSplit = firstSplit.length === 2;
         basePadas = [...firstSplit, ...secondSplit];
       }
     } else if (basePadas.length === 4) {
@@ -838,7 +839,7 @@ export class VagdhenuWebEngine {
     let refTokens = entry.ref_tokens;
     let sps = entry.sec_per_syll;
 
-    if (refLut) {
+    if (refLut && entry.mel_frames > refLut.frame + 10 && entry.ref_tokens.length > refLut.tok) {
       refMel = fullRefMel.subarray(refLut.frame * 100);
       refMelFrames = entry.mel_frames - refLut.frame;
       refAudioLen = refMelFrames;
@@ -902,10 +903,17 @@ export class VagdhenuWebEngine {
           chunkCfg: cfg,
         };
       }
-      if (effectiveNfe === 8 || effectiveNfe === 9) {
+      if (effectiveNfe === 8) {
         return {
           tSteps: new Float32Array([t12[0], t12[1], t12[2], t12[3], t12[4], t12[6], t12[9], t12[11], 1.0]),
           stepModes: ["cfg", "cfg", "cfg", "cfg", "cfg", "cfg", "b1", "b1"],
+          chunkCfg: cfg,
+        };
+      }
+      if (effectiveNfe === 9) {
+        return {
+          tSteps: new Float32Array([t12[0], t12[1], t12[2], t12[3], t12[4], t12[5], t12[7], t12[9], t12[11], 1.0]),
+          stepModes: ["cfg", "cfg", "cfg", "cfg", "cfg", "cfg", "b1", "b1", "b1"],
           chunkCfg: cfg,
         };
       }
@@ -924,14 +932,13 @@ export class VagdhenuWebEngine {
 
     const chunkSchedules = pieces.map((_, idx) => getChunkSchedule(idx));
     const totalSteps = chunkSchedules.reduce((acc, s) => acc + s.stepModes.length, 0);
-    const waves = [];
     let completedSteps = 0;
 
     // Studio mid-verse caesura pause: 0.16s intra-hemistich pāda caesura, 0.50s inter-hemistich daṇḍa pause
     const gaps = pieces.map((p, idx) => {
       const isIntraHemistich =
         (pieces.length === 4 && (idx === 0 || idx === 2)) ||
-        (pieces.length === 3 && idx === 0);
+        (pieces.length === 3 && (firstHemistichSplit ? idx === 0 : idx === 1));
       const baseGap = isIntraHemistich ? 0.16 : 0.50;
       return new Float32Array(Math.floor(baseGap * SR) + (endsHalant(p) ? Math.floor(0.20 * SR) : 0));
     });
@@ -1019,7 +1026,6 @@ export class VagdhenuWebEngine {
         x,
         xBoth,
         schedule: chunkSchedules[pIdx],
-        nextStep: 0,
       };
     };
 
@@ -1189,7 +1195,6 @@ export class VagdhenuWebEngine {
           safeDisposeTensor(tRs);
         }
       }
-      st.nextStep = s + 1;
       completedSteps++;
     };
 
@@ -1205,23 +1210,23 @@ export class VagdhenuWebEngine {
           : 1.0;
 
       const genMelT = new Float32Array(100 * genFrames);
-      const env5 = new Float32Array(100);
       for (let f = 0; f < genFrames; f++) {
         const srcBase = (refAudioLen + f) * 100;
         if (harmonicBoost > 1.001) {
           for (let c = 0; c < 100; c++) {
-            const c0 = c > 2 ? c - 2 : 0;
-            const c1 = c < 97 ? c + 2 : 99;
-            let s5 = 0;
-            for (let k = c0; k <= c1; k++) {
-              s5 += x[srcBase + k];
-            }
-            env5[c] = s5 / (c1 - c0 + 1);
-          }
-          for (let c = 0; c < 100; c++) {
             const val = x[srcBase + c];
-            const boosted = c >= 15 && c < 80 ? env5[c] + (val - env5[c]) * harmonicBoost : val;
-            genMelT[c * genFrames + f] = boosted;
+            if (c >= 15 && c < 80) {
+              const env =
+                (x[srcBase + c - 2] +
+                  x[srcBase + c - 1] +
+                  val +
+                  x[srcBase + c + 1] +
+                  x[srcBase + c + 2]) *
+                0.2;
+              genMelT[c * genFrames + f] = env + (val - env) * harmonicBoost;
+            } else {
+              genMelT[c * genFrames + f] = val;
+            }
           }
         } else {
           for (let c = 0; c < 100; c++) {
@@ -1280,7 +1285,6 @@ export class VagdhenuWebEngine {
         fout: 0.04,
         keep: 0.06,
       });
-      waves[pIdx] = gatedChunk;
 
       const gapChunk = !isLast ? gaps[pIdx] : new Float32Array(0);
       return { pIdx, gatedChunk, gapChunk };
